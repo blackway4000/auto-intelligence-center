@@ -1,92 +1,86 @@
 """AI Content Generator for Auto Intelligence Center.
 
-Generates structured content from vehicle database using templates.
-AI analysis integration is optional - templates work standalone.
+Features:
+- Jinja2 template-based content generation (no API required for basic output)
+- Optional LLM integration for enhanced analysis
+- Prompt templates stored in prompts/ directory
 """
 
 import os
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from jinja2 import Template
+from jinja2 import Environment, FileSystemLoader, Template
 
-from database import (
-    get_connection, list_vehicles, get_latest_price,
-    get_pending_crawled, mark_crawled_processed
-)
+from database import list_vehicles, get_latest_price
+
+PROMPTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'prompts')
+TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), '..', 'templates')
 
 
 class ContentGenerator:
-    """Generate content for all four columns."""
+    """Generate content for all four columns using templates and optional LLM."""
     
-    def __init__(self):
-        self.templates = {
-            'daily': self._daily_template(),
-            'calendar': self._calendar_template(),
-            'price': self._price_template(),
-            'review': self._review_template(),
-        }
+    def __init__(self, use_llm: bool = False):
+        self.use_llm = use_llm
+        # Templates for direct content rendering
+        self.template_env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
+        # Prompts for LLM enhancement
+        self.prompt_env = Environment(loader=FileSystemLoader(PROMPTS_DIR))
+        
+        # Load prompt templates
+        self.prompts = {}
+        for prompt_file in os.listdir(PROMPTS_DIR):
+            if prompt_file.endswith('.md'):
+                name = prompt_file.replace('.md', '')
+                with open(os.path.join(PROMPTS_DIR, prompt_file)) as f:
+                    self.prompts[name] = f.read()
     
-    def _daily_template(self) -> Template:
-        return Template('''今日新车（Daily）
-{% for car in cars %}
-○ {{ car.name }}
-  发布时间：{{ car.date }}
-  一句话：{{ car.summary }}
-  {% if car.price %}价格：{{ car.price }}万{% endif %}
-  {% if car.highlights %}亮点：{{ car.highlights }}{% endif %}
-  {% if car.drawbacks %}槽点：{{ car.drawbacks }}{% endif %}
-  观点：{{ car.review }}
-{% endfor %}
-''')
+    def _render_template(self, template_name: str, **kwargs) -> str:
+        """Render a Jinja2 template from templates directory."""
+        try:
+            template = self.template_env.get_template(f'{template_name}.md')
+            return template.render(**kwargs)
+        except Exception as e:
+            print(f"Template error for {template_name}: {e}")
+            return ""
     
-    def _calendar_template(self) -> Template:
-        return Template('''新车日历（Calendar）
-
-本周上市
-{% for car in this_week %}
-○ {{ car.name }}（{{ car.date }}）{% if car.is_confirmed %}✓{% endif %}
-{% endfor %}
-
-本月上市
-{% for car in this_month %}
-○ {{ car.name }}（{{ car.date }}）
-{% endfor %}
-''')
-    
-    def _price_template(self) -> Template:
-        return Template('''价格变化（Price）
-
-{% for item in price_changes %}
-{{ item.name }}
-  {% if item.old_price %}原{{ item.price_type }}：{{ item.old_price }}万{% endif %}
-  {% if item.new_price %}{{ item.new_type }}：{{ item.new_price }}万{% endif %}
-  {% if item.change %}变化：{{ item.change }}{% endif %}
-  观点：{{ item.review }}
-{% endfor %}
-''')
-    
-    def _review_template(self) -> Template:
-        return Template('''编辑观点
-
-{% for car in cars %}
-{{ car.name }}：{{ car.rating }}
-{{ car.review }}
-{% endfor %}
-''')
-    
-    def generate_daily(self, cars: List[Dict]) -> str:
+    def generate_daily(self, vehicles: List[Dict]) -> str:
         """Generate daily new cars column."""
-        return self.templates['daily'].render(cars=cars)
+        if not vehicles:
+            return "**今日新车（Daily）**\n\n今日暂无新车动态。"
+        
+        daily_cars = []
+        for v in vehicles[:5]:
+            price_info = get_latest_price(v['id'])
+            price_str = None
+            if price_info:
+                min_p = price_info['min_price']
+                max_p = price_info['max_price']
+                price_str = f"{min_p:.1f}" if min_p == max_p else f"{min_p:.1f}-{max_p:.1f}"
+            
+            daily_cars.append({
+                'name': v['name'],
+                'date': v.get('launch_date') or v.get('presale_date') or '待定',
+                'price': price_str,
+                'highlights': v.get('tags', '配置待公布')[:30],
+                'drawbacks': '暂无',  # Would need review data
+                'review': '★★★★☆ 值得关注',
+            })
+        
+        return self._render_template('daily_new_car', vehicle_data=daily_cars[0] if daily_cars else {})
     
     def generate_calendar(self, vehicles: List[Dict]) -> str:
         """Generate new car calendar."""
         today = datetime.now()
         this_week_end = today + timedelta(days=7)
         this_month_end = today + timedelta(days=30)
+        next_month_start = this_month_end + timedelta(days=1)
+        next_month_end = today + timedelta(days=60)
         
         this_week = []
         this_month = []
+        next_month = []
         
         for v in vehicles:
             launch_date = v.get('launch_date')
@@ -105,73 +99,66 @@ class ContentGenerator:
                     this_week.append(car_info)
                 elif today <= ld <= this_month_end:
                     this_month.append(car_info)
+                elif next_month_start <= ld <= next_month_end:
+                    next_month.append(car_info)
             except (ValueError, TypeError):
                 continue
         
-        return self.templates['calendar'].render(
-            this_week=this_week,
-            this_month=this_month
-        )
+        return self._render_template('new_car_calendar',
+                                     this_week=this_week,
+                                     this_month=this_month,
+                                     next_month=next_month)
     
-    def generate_price_changes(self, changes: List[Dict]) -> str:
+    def generate_price_changes(self, vehicles: List[Dict]) -> str:
         """Generate price change column."""
-        return self.templates['price'].render(price_changes=changes)
+        changes = self._find_price_changes(vehicles)
+        
+        if not changes:
+            return "**价格变化（Price）**\n\n今日暂无价格变动。"
+        
+        return self._render_template('price_change', price_changes=changes)
     
-    def generate_reviews(self, cars: List[Dict]) -> str:
+    def generate_reviews(self, vehicles: List[Dict]) -> str:
         """Generate one-sentence reviews."""
+        if not vehicles:
+            return "**编辑观点**\n\n暂无车型点评。"
+        
         review_cars = []
-        for car in cars:
+        for v in vehicles[:5]:
             review_cars.append({
-                'name': car['name'],
-                'rating': car.get('rating', '★★★★☆'),
-                'review': car.get('review', '值得关注的车型'),
+                'name': v['name'],
+                'rating': '★★★★☆',
+                'review': '值得关注的车型，建议等更多信息公布后再做决定。',
             })
-        return self.templates['review'].render(cars=review_cars)
+        
+        return self._render_template('one_sentence_review', vehicles=review_cars)
     
     def generate_all(self, vehicles: Optional[List[Dict]] = None) -> Dict[str, str]:
         """Generate all four columns."""
         if vehicles is None:
             vehicles = list_vehicles()
         
-        # Build daily cars from vehicles with launch/presale dates
-        daily_cars = []
-        for v in vehicles[:5]:
-            price_info = get_latest_price(v['id'])
-            price_str = None
-            if price_info:
-                price_str = f"{price_info['min_price']}-{price_info['max_price']}"
-            
-            daily_cars.append({
-                'name': v['name'],
-                'date': v.get('launch_date') or v.get('presale_date') or '待定',
-                'summary': f"{v['name']}新动态",
-                'price': price_str,
-                'highlights': v.get('tags', ''),
-                'drawbacks': '',
-                'review': '★★★★☆ 值得关注',
-            })
-        
-        # Find price changes (vehicles with multiple price records)
-        price_changes = self._find_price_changes(vehicles)
-        
         return {
-            'daily': self.generate_daily(daily_cars),
+            'daily': self.generate_daily(vehicles),
             'calendar': self.generate_calendar(vehicles),
-            'price': self.generate_price_changes(price_changes),
-            'review': self.generate_reviews(daily_cars),
+            'price': self.generate_price_changes(vehicles),
+            'review': self.generate_reviews(vehicles),
         }
     
     def _find_price_changes(self, vehicles: List[Dict]) -> List[Dict]:
         """Find vehicles with price changes."""
+        from database import get_connection
+        
         changes = []
         conn = get_connection()
+        conn.row_factory = lambda c, r: {col[0]: r[idx] for idx, col in enumerate(c.description)}
         cursor = conn.cursor()
         
         for v in vehicles:
             cursor.execute('''
                 SELECT * FROM prices 
                 WHERE vehicle_id = ? 
-                ORDER BY effective_date DESC 
+                ORDER BY effective_date DESC, created_at DESC 
                 LIMIT 2
             ''', (v['id'],))
             
@@ -184,76 +171,74 @@ class ContentGenerator:
                 changes.append({
                     'name': v['name'],
                     'price_type': previous['price_type'],
-                    'old_price': previous['min_price'],
+                    'old_price': f"{previous['min_price']:.1f}",
                     'new_type': latest['price_type'],
-                    'new_price': latest['min_price'],
-                    'change': f"{'+' if change > 0 else ''}{change:.1f}万",
-                    'review': '价格调整，建议关注' if change < 0 else '价格上涨',
+                    'new_price': f"{latest['min_price']:.1f}",
+                    'change': f"{'↓' if change < 0 else '↑'}{abs(change):.1f}万",
+                    'review': '价格诚意足够' if change < 0 else '建议观望',
                 })
         
         conn.close()
         return changes
-
-
-class PromptBuilder:
-    """Build prompts for LLM analysis."""
     
-    @staticmethod
-    def vehicle_summary_prompt(vehicle_data: Dict) -> str:
-        """Build prompt for generating vehicle summary."""
-        return f"""你是一位资深汽车编辑。请根据以下车型数据，生成一段100字以内的"一句话点评"。
-
-车型：{vehicle_data.get('name', '')}
-品牌：{vehicle_data.get('brand', '')}
-价格区间：{vehicle_data.get('price', '待定')}
-动力类型：{vehicle_data.get('power_type', '')}
-状态：{vehicle_data.get('status', '')}
-
-要求：
-1. 给出1-5星评分（用★表示）
-2. 一句话总结适合谁买
-3. 一句话给出购买建议
-4. 指出最大的优点和最大的遗憾
-
-输出格式：
-评分：★★★★☆
-适合人群：...
-购买建议：...
-最大优点：...
-最大遗憾：...
-"""
+    def get_llm_prompt(self, column: str, data: Dict) -> str:
+        """Get the raw prompt for LLM processing."""
+        prompt_template = self.prompts.get(column, '')
+        
+        # Extract the prompt content (after frontmatter)
+        if '---' in prompt_template:
+            parts = prompt_template.split('---')
+            if len(parts) >= 3:
+                prompt_template = parts[2]
+        
+        # Render with data
+        template = self.prompt_env.from_string(prompt_template)
+        return template.render(**data)
 
 
 if __name__ == '__main__':
     # Test content generation
     generator = ContentGenerator()
     
-    # Sample test data
+    # Test with sample data
     test_vehicles = [
         {
             'id': 1,
             'name': '小米YU9',
-            'brand': '小米汽车',
+            'brand_id': 1,
+            'segment': 'SUV',
             'power_type': '纯电',
             'status': '预售',
             'launch_date': '2026-07-15',
+            'presale_date': '2026-07-01',
             'tags': '双电机四驱,激光雷达,8295芯片',
         },
         {
             'id': 2,
             'name': '比亚迪海豹06',
-            'brand': '比亚迪',
+            'brand_id': 2,
+            'segment': '轿车',
             'power_type': '插混',
-            'status': '上市',
+            'status': 'confirmed',
             'launch_date': '2026-07-08',
             'tags': 'DM-i,续航1200km',
+        },
+        {
+            'id': 3,
+            'name': '零跑B10',
+            'brand_id': 8,
+            'segment': 'SUV',
+            'power_type': '纯电',
+            'status': 'confirmed',
+            'launch_date': '2026-07-20',
+            'tags': 'LEAP3.5架构,激光雷达',
         },
     ]
     
     results = generator.generate_all(test_vehicles)
     
     for column, content in results.items():
-        print(f"\n{'='*40}")
+        print(f"\n{'='*50}")
         print(f"栏目：{column}")
-        print('='*40)
+        print('='*50)
         print(content)
