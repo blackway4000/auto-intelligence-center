@@ -13,7 +13,7 @@ DB_PATH = os.path.join(DATA_DIR, 'vehicles.db')
 BRAND_SOURCES = {
     'xiaomi': {
         'name': '小米汽车',
-        'news_url': 'https://www.xiaomiev.com/news',
+        'news_url': 'https://www.xiaomiev.com',
         'enabled': True,
     },
     'byd': {
