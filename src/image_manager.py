@@ -196,8 +196,13 @@ class ImageManager:
         return images[:max_count]
     
     def copy_for_export(self, brand: str, vehicle: str,
-                        export_dir: str, max_count: int = 5) -> List[str]:
+                        export_dir: str, max_count: int = 5,
+                        start_index: int = 1) -> List[str]:
         """Copy images to export directory for article publishing.
+        
+        Args:
+            start_index: Global index offset to avoid filename collisions
+                         when multiple vehicles share the same export dir.
         
         Returns:
             List of relative paths for markdown reference
@@ -214,7 +219,7 @@ class ImageManager:
         result_paths = []
         for i, src_path in enumerate(source_paths):
             ext = os.path.splitext(src_path)[1]
-            dest_name = f"img_{i+1:02d}{ext}"
+            dest_name = f"img_{start_index + i:02d}{ext}"
             dest_path = os.path.join(export_img_dir, dest_name)
             shutil.copy2(src_path, dest_path)
             result_paths.append(f"images/{dest_name}")

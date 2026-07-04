@@ -61,19 +61,21 @@ class ArticleExporter:
         # Step 1: Copy images and update vehicle dict with export-relative paths
         print("收集图片...")
         image_refs = []
+        img_index = 1  # Global index to avoid filename collisions across vehicles
         for v in vehicles:
             brand = self._get_brand_name(v['brand_id'])
             vehicle_name = v['name']
             
             # Copy images to export dir, get relative paths like images/img_01.jpg
             copied = self.image_manager.copy_for_export(
-                brand, vehicle_name, output_dir, max_count=3
+                brand, vehicle_name, output_dir, max_count=3, start_index=img_index
             )
             image_refs.extend(copied)
             
             # Update vehicle dict so generator uses export-relative paths
             if copied:
                 v['image_urls'] = copied
+                img_index += len(copied)
         
         # Step 2: Generate content (now with correct image paths)
         print(f"\n生成内容 ({len(vehicles)} 款车型)...")
