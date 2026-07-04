@@ -64,7 +64,7 @@ class ContentGenerator:
                 'date': v.get('launch_date') or v.get('presale_date') or '待定',
                 'price': price_str,
                 'highlights': v.get('tags', '配置待公布')[:30],
-                'drawbacks': '暂无',  # Would need review data
+                'target_user': '待定',  # Would need segment/power_type analysis
                 'review': '★★★★☆ 值得关注',
             })
         
@@ -128,7 +128,7 @@ class ContentGenerator:
             review_cars.append({
                 'name': v['name'],
                 'rating': '★★★★☆',
-                'review': '值得关注的车型，建议等更多信息公布后再做决定。',
+                'review': '信息还不多，建议再等等，看看正式售价和配置再说。',
             })
         
         return self._render_template('one_sentence_review', vehicles=review_cars)
