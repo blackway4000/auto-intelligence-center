@@ -48,13 +48,22 @@ def get_vehicle_full(vehicle_id: int) -> dict:
     
     # Get competitors
     cursor.execute("""
-        SELECT v.name, v.brand_id, b.name as brand_name, c.relationship_type, c.notes
+        SELECT v.name, c.relationship_type, c.notes
         FROM competitors c
         JOIN vehicles v ON c.competitor_vehicle_id = v.id
-        JOIN brands b ON v.brand_id = b.id
         WHERE c.vehicle_id = ?
     """, (vehicle_id,))
     competitors = cursor.fetchall()
+    
+    # Get content source for source_name
+    cursor.execute("""
+        SELECT source_name, source_url
+        FROM content_sources
+        WHERE vehicle_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+    """, (vehicle_id,))
+    source_row = cursor.fetchone()
     
     conn.close()
     
@@ -69,6 +78,34 @@ def get_vehicle_full(vehicle_id: int) -> dict:
     if spec_row:
         result['specs'] = dict(spec_row)
     result['competitors'] = [dict(c) for c in competitors]
+    
+    # Source info
+    if source_row:
+        result['source_name'] = source_row['source_name']
+        result['source_url'] = source_row['source_url']
+    elif result.get('source_url'):
+        # Infer source name from URL
+        url = result['source_url']
+        if 'autohome' in url:
+            result['source_name'] = '汽车之家'
+        elif 'dongchedi' in url:
+            result['source_name'] = '懂车帝'
+        elif 'toutiao' in url:
+            result['source_name'] = '今日头条'
+        elif 'xiaopeng' in url:
+            result['source_name'] = '小鹏官网'
+        elif 'leapmotor' in url:
+            result['source_name'] = '零跑官网'
+        elif 'byd' in url:
+            result['source_name'] = '比亚迪官网'
+        elif 'lixiang' in url:
+            result['source_name'] = '理想官网'
+        elif 'nio' in url:
+            result['source_name'] = '蔚来官网'
+        elif 'miit' in url:
+            result['source_name'] = '工信部公告'
+        else:
+            result['source_name'] = '网络公开信息'
     
     return result
 
@@ -481,7 +518,27 @@ def generate_laotu_article(vehicle_ids: list = None, output_dir: str = None) -> 
         lines.append("建议大家别急着下手，多对比多看，毕竟今年新车迭代速度太快，等等党永远不亏。")
     
     lines.append("")
-    lines.append("*以上信息基于公开数据整理，具体以官方公布为准。*")
+    lines.append("---")
+    lines.append("")
+    lines.append("**数据来源**")
+    lines.append("")
+    
+    source_list = []
+    for v in vehicles:
+        src_name = v.get('source_name', '')
+        src_url = v.get('source_url', '')
+        if src_name and src_url:
+            source_list.append(f"- {v['name']}：[{src_name}]({src_url})")
+        elif src_name:
+            source_list.append(f"- {v['name']}：{src_name}")
+    
+    if source_list:
+        lines.extend(source_list)
+    else:
+        lines.append("- 数据来源于公开渠道整理")
+    
+    lines.append("")
+    lines.append("*以上信息基于公开数据整理，具体以官方公布为准。价格、配置等信息可能随时调整，请以品牌官方最新公布为准。*")
     
     article = "\n".join(lines)
     
