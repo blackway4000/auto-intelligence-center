@@ -6,4 +6,4 @@
   - 价格：{{ vehicle_data.price or '待定' }}
   - 核心看点：{{ vehicle_data.highlights or '配置待公布' }}
   - 适合谁：{{ vehicle_data.target_user or '待定' }}
-  - 咆哮哥拍板：{{ vehicle_data.review or '★★★★☆ 值得关注' }}
+  - 观点：{{ vehicle_data.review or '★★★★☆ 值得关注' }}

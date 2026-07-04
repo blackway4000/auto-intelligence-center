@@ -374,7 +374,7 @@ class ContentGenerator:
     def generate_reviews(self, vehicles: List[Dict]) -> str:
         """Generate one-sentence reviews with rule-based copy."""
         if not vehicles:
-            return "**咆哮哥点评**\n\n暂无车型点评。"
+            return "**编辑观点**\n\n暂无车型点评。"
         
         review_cars = []
         for v in vehicles[:5]:

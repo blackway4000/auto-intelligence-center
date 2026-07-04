@@ -1,4 +1,4 @@
-**咆哮哥点评**
+**编辑观点**
 
 {% for car in vehicles %}
 {{ car.name }}：{{ car.rating }}
