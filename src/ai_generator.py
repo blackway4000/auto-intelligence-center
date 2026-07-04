@@ -128,7 +128,7 @@ class ContentGenerator:
             review_cars.append({
                 'name': v['name'],
                 'rating': '★★★★☆',
-                'review': '信息还不多，建议再等等，看看正式售价和配置再说。',
+                'review': '信息还不多，能不能行了？等正式售价出来再拍板。',
             })
         
         return self._render_template('one_sentence_review', vehicles=review_cars)
