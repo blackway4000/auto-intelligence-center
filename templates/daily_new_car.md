@@ -7,3 +7,10 @@
   - 核心看点：{{ vehicle_data.highlights or '配置待公布' }}
   - 适合谁：{{ vehicle_data.target_user or '待定' }}
   - 观点：{{ vehicle_data.review or '★★★★☆ 值得关注' }}
+{% if vehicle_data.images %}
+
+📷 **车型图片**
+{% for img in vehicle_data.images[:3] %}
+![{{ vehicle_data.name }}]({{ img }})
+{% endfor %}
+{% endif %}

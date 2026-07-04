@@ -13,9 +13,10 @@ from typing import List, Dict, Optional, Tuple
 from database import (
     get_or_create_brand, insert_vehicle, insert_price, insert_specs,
     insert_content_source, add_competitor, find_potential_competitors,
-    get_vehicle_by_name, list_vehicles, list_brands,
+    get_vehicle_by_name, list_vehicles, list_brands, update_vehicle,
     get_specs, get_latest_price,
 )
+from image_manager import ImageManager
 
 
 class VehicleDataParser:
@@ -148,6 +149,7 @@ class DataCollector:
     
     def __init__(self):
         self.parser = VehicleDataParser()
+        self.image_manager = ImageManager()
     
     def add_vehicle_from_manual(self, brand_name: str, vehicle_name: str,
                                 price_min: Optional[float] = None,
@@ -227,6 +229,27 @@ class DataCollector:
                 publish_date=kwargs.get('publish_date'),
                 images=kwargs.get('images', [])
             )
+        
+        # Download images if URLs provided
+        image_urls = kwargs.get('image_urls', [])
+        if image_urls:
+            print(f"\n  下载图片 ({len(image_urls)} 张)...")
+            downloaded = self.image_manager.download_vehicle_images(
+                brand_name, vehicle_name, image_urls,
+                referer=kwargs.get('source_url'),
+                max_images=kwargs.get('max_images', 10)
+            )
+            print(f"  成功下载 {len([d for d in downloaded if d['status'] in ('downloaded', 'existing')])} 张")
+            
+            # Process images (remove watermarks)
+            print(f"  处理图片...")
+            processed = self.image_manager.process_images(brand_name, vehicle_name)
+            print(f"  成功处理 {len(processed)} 张")
+            
+            # Update vehicle with image paths
+            image_paths = self.image_manager.get_image_paths(brand_name, vehicle_name, max_count=10)
+            if image_paths:
+                update_vehicle(vehicle_id, image_urls=json.dumps(image_paths))
         
         return vehicle_id
     

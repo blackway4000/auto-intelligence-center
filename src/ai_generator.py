@@ -249,7 +249,7 @@ class ContentGenerator:
             return ""
     
     def generate_daily(self, vehicles: List[Dict]) -> str:
-        """Generate daily new cars column with rule-based copy."""
+        """Generate daily new cars column with rule-based copy for all vehicles."""
         if not vehicles:
             return "**今日新车（Daily）**\n\n今日暂无新车动态。"
         
@@ -288,6 +288,18 @@ class ContentGenerator:
                 name, price_val, tags, power_type, segment
             )
             
+            # Parse image_urls
+            images = []
+            raw_images = v.get('image_urls')
+            if raw_images:
+                if isinstance(raw_images, str):
+                    try:
+                        images = json.loads(raw_images)
+                    except json.JSONDecodeError:
+                        images = [raw_images] if raw_images else []
+                elif isinstance(raw_images, list):
+                    images = raw_images
+            
             daily_cars.append({
                 'name': name,
                 'date': v.get('launch_date') or v.get('presale_date') or '待定',
@@ -296,29 +308,35 @@ class ContentGenerator:
                 'highlights': highlights,
                 'target_user': target_user,
                 'review': review,
+                'images': images,
             })
         
-        # Generate opening if it's the first vehicle
+        # Generate opening
         opening = ""
         if daily_cars:
             opening = self.copy_engine.generate_opening(daily_cars[0]['name'])
         
-        content = self._render_template('daily_new_car', 
-                                       vehicle_data=daily_cars[0] if daily_cars else {})
+        # Render each vehicle block
+        blocks = []
+        for car in daily_cars:
+            block = self._render_template('daily_new_car', vehicle_data=car)
+            blocks.append(block)
         
-        # Add opening and version recommendation
+        # Add version recommendation for first vehicle
+        version_tip = ""
+        if vehicles:
+            v = vehicles[0]
+            if 'min_price' in v:
+                price_val = float(v['min_price'])
+            else:
+                price_info = get_latest_price(v['id'])
+                price_val = float(price_info['min_price']) if price_info else None
+            version_tip = self.copy_engine.generate_version_recommendation(
+                v['name'], price_val, v.get('tags', '')
+            )
+        
+        content = '\n\n'.join(blocks)
         if opening:
-            version_tip = ""
-            if daily_cars:
-                v = vehicles[0]
-                if 'min_price' in v:
-                    price_val = float(v['min_price'])
-                else:
-                    price_info = get_latest_price(v['id'])
-                    price_val = float(price_info['min_price']) if price_info else None
-                version_tip = self.copy_engine.generate_version_recommendation(
-                    v['name'], price_val, v.get('tags', '')
-                )
             content = f"{opening}\n\n{content}{version_tip}"
         
         return content
